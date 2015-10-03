@@ -45,6 +45,7 @@
 #include "mongoBackend/mongoOntimeintervalOperations.h"
 #include "mongoBackend/mongoConnectionPool.h"
 #include "mongoBackend/MongoGlobal.h"
+#include "mongoBackend/collectionOperations.h"
 
 #include "ngsi/EntityIdVector.h"
 #include "ngsi/AttributeList.h"
@@ -507,40 +508,11 @@ static void treatOnTimeIntervalSubscriptions(std::string tenant, MongoTreatFunct
 {
   std::string               condType   = CSUB_CONDITIONS "." CSUB_CONDITIONS_TYPE;
   BSONObj                   query      = BSON(condType << ON_TIMEINTERVAL_CONDITION);
-  DBClientBase*             connection = getMongoConnection();
   auto_ptr<DBClientCursor>  cursor;
+  std::string               err;
 
-  LM_T(LmtMongo, ("query() in '%s' collection: '%s'",
-                  getSubscribeContextCollectionName(tenant).c_str(),
-                  query.toString().c_str()));
-
-  try
+  if (!collectionQuery(getSubscribeContextCollectionName(tenant), query, &cursor, &err))
   {
-    cursor = connection->query(getSubscribeContextCollectionName(tenant).c_str(), query);
-
-    /*
-     * We have observed that in some cases of DB errors (e.g. the database daemon is down) instead of
-     * raising an exception, the query() method sets the cursor to NULL. In this case, we raise the
-     * exception ourselves
-     */
-    if (cursor.get() == NULL)
-    {
-      throw DBException("Null cursor from mongo (details on this is found in the source code)", 0);
-    }
-    releaseMongoConnection(connection);  // KZ: OK to release the connection up here?
-
-    LM_I(("Database Operation Successful (%s)", query.toString().c_str()));
-  }
-  catch (const DBException &e)
-  {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error (DBException: %s)", e.what()));
-    return;
-  }
-  catch (...)
-  {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error (generic exception)"));
     return;
   }
 
@@ -1465,7 +1437,6 @@ bool entitiesQuery
   long long*                       countP
 )
 {
-  DBClientBase* connection = NULL;
 
   /* Query structure is as follows
    *
@@ -1563,55 +1534,12 @@ bool entitiesQuery
 
   /* Do the query on MongoDB */
   auto_ptr<DBClientCursor>  cursor;
-  BSONObj                   bquery = finalQuery.obj();
-  Query                     query(bquery);
-  Query                     sortCriteria  = query.sort(BSON(ENT_CREATION_DATE << 1));
+  Query                     query(finalQuery.obj());
 
-  LM_T(LmtMongo, ("query() in '%s' collection: '%s'",
-                  getEntitiesCollectionName(tenant).c_str(),
-                  query.toString().c_str()));
+  query.sort(BSON(ENT_CREATION_DATE << 1));
 
-  connection = getMongoConnection();
-  try
+  if (!collectionRangedQuery(getEntitiesCollectionName(tenant), query, limit, offset, &cursor, countP, err))
   {
-    if (countP != NULL)
-    {
-      *countP = connection->count(getEntitiesCollectionName(tenant).c_str(), bquery);
-    }
-
-    cursor = connection->query(getEntitiesCollectionName(tenant).c_str(), query, limit, offset);
-
-    //
-    // We have observed that in some cases of DB errors (e.g. the database daemon is down) instead of
-    // raising an exception, the query() method sets the cursor to NULL. In this case, we raise the
-    // exception ourselves
-    //
-    if (cursor.get() == NULL)
-    {
-      throw DBException("Null cursor from mongo (details on this is found in the source code)", 0);
-    }
-
-    releaseMongoConnection(connection);
-    LM_I(("Database Operation Successful (%s)", query.toString().c_str()));
-  }
-  catch (const DBException& e)
-  {
-    releaseMongoConnection(connection);
-    *err = std::string("collection: ") + getEntitiesCollectionName(tenant).c_str() +
-      " - query(): " + query.toString() +
-      " - exception: " + e.what();
-
-    LM_E(("Database Error (%s)", err->c_str()));
-    return false;
-  }
-  catch (...)
-  {
-    releaseMongoConnection(connection);
-    *err = std::string("collection: ") + getEntitiesCollectionName(tenant).c_str() +
-      " - query(): " + query.toString() +
-      " - exception: " + "generic";
-
-    LM_E(("Database Error (%s)", err->c_str()));
     return false;
   }
 
@@ -2073,7 +2001,6 @@ bool registrationsQuery
   long long*                          countP
 )
 {
-  DBClientBase* connection = NULL;
 
   /* Build query based on arguments */
   // FIXME P2: this implementation need to be refactored for cleanup
@@ -2162,46 +2089,14 @@ bool registrationsQuery
   //           contextRegistration array (e.g. "expiration" is not needed)
   //
   auto_ptr<DBClientCursor>  cursor;
-  BSONObj                   bquery = queryBuilder.obj();
-  Query                     query(bquery);
-  Query                     sortCriteria  = query.sort(BSON("_id" << 1));
+  Query                     query(queryBuilder.obj());
 
-  LM_T(LmtMongo, ("query() in '%s' collection: '%s'",
-                  getRegistrationsCollectionName(tenant).c_str(),
-                  query.toString().c_str()));
+  query.sort(BSON("_id" << 1));
 
   LM_T(LmtPagination, ("Offset: %d, Limit: %d, Details: %s", offset, limit, (details == true)? "true" : "false"));
 
-  connection = getMongoConnection();
-  try
+  if (!collectionRangedQuery(getRegistrationsCollectionName(tenant), query, limit, offset, &cursor, countP, err))
   {
-    if ((details == true) && (countP != NULL))
-    {
-      *countP = connection->count(getRegistrationsCollectionName(tenant).c_str(), bquery);
-    }
-
-    cursor = connection->query(getRegistrationsCollectionName(tenant).c_str(), query, limit, offset);
-    releaseMongoConnection(connection);
-    LM_I(("Database Operation Successful (%s)", query.toString().c_str()));
-  }
-  catch (const DBException& e)
-  {
-    releaseMongoConnection(connection);
-    *err = std::string("collection: ") + getRegistrationsCollectionName(tenant).c_str() +
-      " - query(): " + query.toString() +
-      " - exception: " + e.what();
-
-    LM_E(("Database Error (%s)", err->c_str()));
-    return false;
-  }
-  catch (...)
-  {
-    releaseMongoConnection(connection);
-    *err = std::string("collection: ") + getRegistrationsCollectionName(tenant).c_str() +
-      " - query(): " + query.toString() +
-      " - exception: " + "generic";
-
-    LM_E(("Database Error (%s)", err->c_str()));
     return false;
   }
 
@@ -2868,37 +2763,12 @@ std::string dbDotDecode(std::string s)
 void subscriptionsTreat(std::string database, MongoTreatFunction treatFunction)
 {
   BSONObj                   query;
-  DBClientBase*             connection = getMongoConnection();
+  std::string               err;
   auto_ptr<DBClientCursor>  cursor;
+  std::string               tenant = tenantFromDb(database);
 
-  std::string tenant = tenantFromDb(database);
-  try
+  if (!collectionQuery(getSubscribeContextCollectionName(tenant), query, &cursor, &err))
   {
-    cursor = connection->query(getSubscribeContextCollectionName(tenant).c_str(), query);
-
-    /*
-     * We have observed that in some cases of DB errors (e.g. the database daemon is down) instead of
-     * raising an exception, the query() method sets the cursor to NULL. In this case, we raise the
-     * exception ourselves
-     */
-    if (cursor.get() == NULL)
-    {
-      throw DBException("Null cursor from mongo (details on this is found in the source code)", 0);
-    }
-    releaseMongoConnection(connection);
-
-    LM_I(("Database Operation Successful (%s)", query.toString().c_str()));
-  }
-  catch (const DBException &e)
-  {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error (DBException: %s)", e.what()));
-    return;
-  }
-  catch (...)
-  {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error (generic exception)"));
     return;
   }
 

@@ -32,10 +32,10 @@ using namespace mongo;
 
 /* ****************************************************************************
 *
-* query -
+* collectionQuery -
 *
 */
-extern bool query
+extern bool collectionQuery
 (
     const std::string&             col,
     const BSONObj&                 q,
@@ -43,6 +43,21 @@ extern bool query
     std::string*                   err
 );
 
+/* ****************************************************************************
+*
+* collectionRangedQuery -
+*
+*/
+extern bool collectionRangedQuery
+(
+    const std::string&             col,
+    const Query&                   q,
+    int                            limit,
+    int                            offset,
+    std::auto_ptr<DBClientCursor>* cursor,
+    long long*                     count,
+    std::string*                   err
+);
 
 
 #endif // SRC_LIB_MONGOBACKEND_COLLECTIONOPERATIONS_H_

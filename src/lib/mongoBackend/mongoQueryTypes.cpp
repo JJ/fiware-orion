@@ -32,6 +32,8 @@
 #include "mongoBackend/MongoGlobal.h"
 #include "mongoBackend/mongoQueryTypes.h"
 
+#include "mongoBackend/collectionOperations.h"
+
 /* ****************************************************************************
 *
 * attributeType -
@@ -54,40 +56,10 @@ static std::string attributeType
                        attributeName << BSON("$exists" << true));
 
   std::auto_ptr<DBClientCursor> cursor;
-  DBClientBase*                 connection = NULL;
+  std::string                   err;
 
-  LM_T(LmtMongo, ("query() in '%s' collection: '%s'",
-                  getEntitiesCollectionName(tenant).c_str(),
-                  query.toString().c_str()));
-
-  try
+  if (!collectionQuery(getEntitiesCollectionName(tenant), query, &cursor, &err))
   {
-    connection = getMongoConnection();
-    cursor     = connection->query(getEntitiesCollectionName(tenant).c_str(), query);
-
-    /*
-     * We have observed that in some cases of DB errors (e.g. the database daemon is down) instead of
-     * raising an exception, the query() method sets the cursor to NULL. In this case, we raise the
-     * exception ourselves
-     */
-    if (cursor.get() == NULL)
-    {
-      throw DBException("Null cursor from mongo (details on this is found in the source code)", 0);
-    }
-    releaseMongoConnection(connection);
-
-    LM_I(("Database Operation Successful (%s)", query.toString().c_str()));
-  }
-  catch (const DBException &e)
-  {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error ('%s', '%s')", query.toString().c_str(), e.what()));
-    return "";
-  }
-  catch (...)
-  {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error ('%s', '%s')", query.toString().c_str(), "generic exception"));
     return "";
   }
 

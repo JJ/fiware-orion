@@ -32,10 +32,10 @@ using namespace mongo;
 
 /* ****************************************************************************
 *
-* query -
+* collectionQuery -
 *
 */
-bool query
+bool collectionQuery
 (
     const std::string&             col,
     const BSONObj&                 q,
@@ -71,16 +71,93 @@ bool query
   }
   catch (const DBException &e)
   {
-    releaseMongoConnection(connection);
-    LM_E(("Database Error (%s)", e.what()));
-    *err = "Database Error: " + std::string(e.what());
+    releaseMongoConnection(connection);       
+    std::string msg = std::string("collection: ") + col +
+      " - query(): " + q.toString() +
+      " - exception: " + e.what();
+    *err = "Database Error (" + msg + ")";
+    LM_E((err->c_str()));
     return false;
   }
   catch (...)
   {
     releaseMongoConnection(connection);
-    LM_E(("Database Error (generic exception)"));
-    *err = "Database Error: generic exception";
+    std::string msg = std::string("collection: ") + col +
+      " - query(): " + q.toString() +
+      " - exception: generic";
+    *err = "Database Error (" + msg + ")";
+    LM_E((err->c_str()));
+    return false;
+  }
+
+  return true;
+}
+
+/* ****************************************************************************
+*
+* collectionRangedQuery -
+*
+*/
+extern bool collectionRangedQuery
+(
+    const std::string&             col,
+    const Query&                   q,
+    int                            limit,
+    int                            offset,
+    std::auto_ptr<DBClientCursor>* cursor,
+    long long*                     count,
+    std::string*                   err
+)
+{
+  DBClientBase* connection = getMongoConnection();
+
+  if (connection == NULL)
+  {
+     LM_E(("Fatal Error (null DB connection)"));
+     *err = "null DB connection";
+     return false;
+  }
+
+  LM_T(LmtMongo, ("query() in '%s' collection: '%s'", col.c_str(), q.toString().c_str()));
+
+  try
+  {
+    if (count != NULL)
+    {
+      *count = connection->count(col.c_str(), q);
+    }
+
+    *cursor = connection->query(col.c_str(), q, limit, offset);
+
+    // We have observed that in some cases of DB errors (e.g. the database daemon is down) instead of
+    // raising an exception, the query() method sets the cursor to NULL. In this case, we raise the
+    // exception ourselves
+    //
+    if (cursor->get() == NULL)
+    {
+      throw DBException("Null cursor from mongo (details on this is found in the source code)", 0);
+    }
+    releaseMongoConnection(connection);
+    LM_I(("Database Operation Successful (%s)", q.toString().c_str()));
+  }
+  catch (const DBException &e)
+  {
+    releaseMongoConnection(connection);
+    std::string msg = std::string("collection: ") + col.c_str() +
+      " - query(): " + q.toString() +
+      " - exception: " + e.what();
+    *err = "Database Error (" + msg + ")";
+    LM_E((err->c_str()));
+    return false;
+  }
+  catch (...)
+  {
+    releaseMongoConnection(connection);
+    std::string msg = std::string("collection: ") + col.c_str() +
+      " - query(): " + q.toString() +
+      " - exception: generic";
+    *err = "Database Error (" + msg + ")";
+    LM_E((err->c_str()));
     return false;
   }
 
